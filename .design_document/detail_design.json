@@ -1,0 +1,28 @@
+{
+  "class_design": {
+    "class_diagram": [
+      "@startuml",
+      "@enduml"
+    ],
+    "files": {}
+  },
+  "method_design": {
+    "files": null
+  },
+  "interface_design": {
+    "endpoints": []
+  },
+  "folder_structure": {
+    "summaries": {
+      "src": "ソースコード"
+    },
+    "folder_structure": [
+      "/",
+      "└── src/                # ソースコード",
+      "    ├── auth_service.py",
+      "    ├── dashboard_service.py",
+      "    ├── main.py",
+      "    └── user_service.py"
+    ]
+  }
+}
