@@ -1,0 +1,555 @@
+{
+  "architecture_design": {
+    "architecture_pattern": {
+      "pattern": "Monolithic\nLayered",
+      "reason": [
+        {
+          "functional": "ユーザ管理 (user_service.py)、認証 (auth_service.py)、ダッシュボード (dashboard_service.py) といった異なる業務ドメインをサービスとして分離することで、各機能の責務が明確になり、並行開発や機能追加が容易になる。また、各サービスが独立したデータストアを持つことでデータの整合性と保守性が向上する。",
+          "quality": "非機能要件として、認証サービスは高いセキュリティレベルが要求されるため、専用の認証基盤として独立させることで、きめ細かなアクセス制御や暗号化を適用しやすい。さらに、ダッシュボードのような負荷変動が大きい機能を分離することで、認証やユーザ管理に影響を与えずに水平スケーリングが可能となり、可用性と性能を確保できる。",
+          "operations": "サービスごとに独立したビルド・テスト・デプロイが可能となるため、CI/CDパイプラインを小さく保ち、リードタイムを短縮できる。障害発生時も影響範囲がサービス内に限定され、迅速な切り分けと復旧が行える。また、サービス単位のメトリクス・ログ収集により、監視とアラートの設定が容易になる。"
+        }
+      ],
+      "scope": [
+        {
+          "approach": "各サービス（user_service, auth_service, dashboard_service）をレイヤードアーキテクチャ（プレゼンテーション・ビジネスロジック・データアクセス）で実装する",
+          "purpose": "関心の分離により、保守性・テスト容易性・変更影響の局所化を向上させる"
+        },
+        {
+          "approach": "認証機能を専用のauth_serviceに集約し、API Gateway経由でトークン検証を横断適用する",
+          "purpose": "セキュリティの一貫性を保ち、各サービスから認証ロジックを切り離して保守性を強化する"
+        },
+        {
+          "approach": "dashboard_serviceにCQRSを部分的に導入し、読み取り専用の最適化ビューを非同期イベントで更新する",
+          "purpose": "集計・レポート処理のパフォーマンスを向上させ、他のサービスへの負荷を軽減する"
+        }
+      ]
+    },
+    "layer_structure": [
+      {
+        "name": "プレゼンテーション層",
+        "role": "ユーザーや外部システムとのインターフェースを提供し、リクエストの受け付けとレスポンスの整形を行う。入出力の形式変換と画面制御が責務である。",
+        "trait": "ドメインロジックを含まず、可能な限り薄く保つ。アプリケーション層のみに依存し、他の層への直接アクセスは行わない。ユーザー体験に直結する部分を隔離する。"
+      },
+      {
+        "name": "アプリケーション層",
+        "role": "ユースケース単位の処理フローを調整し、ドメインオブジェクトの実行とトランザクション境界を管理する。システムの振る舞いを定義する。",
+        "trait": "ドメインロジックを直接実装せず、ドメイン層の要素を組み合わせてユースケースを実現する。プレゼンテーション層とドメイン層・インフラストラクチャ層の橋渡し役を担い、依存関係は内側の層に向かう。"
+      },
+      {
+        "name": "ドメイン層",
+        "role": "システムが対象とする業務領域の中核的なルール、概念、知識を表現する。エンティティ、値オブジェクト、集約、ドメインサービスなどが含まれる。",
+        "trait": "技術的関心から独立し、純粋なビジネスロジックに集中する。外部の層への依存を持たず、抽象インターフェースにのみ依存する。変更の影響を最小化し、ビジネスの複雑性をそのままコード化する。"
+      },
+      {
+        "name": "インフラストラクチャ層",
+        "role": "データベース通信、ファイル操作、外部API呼び出し、メッセージングなど、システムの基盤となる技術的サービスを提供する。",
+        "trait": "ドメイン層で定義された抽象（リポジトリインターフェースなど）を実装し、具体的な技術選択を隠蔽する。上位層からの依存を受ける一方で、ドメイン層への逆依存は発生しない。交換可能性を確保するために実装詳細を隔離する。"
+      }
+    ],
+    "technology_stack": {
+      "selection_criteria": [
+        {
+          "performance_requirement": "認証サービスは秒間1000リクエストを低レイテンシで処理し、ダッシュボードサービスは多数の同時ユーザーに対して集計データを迅速に表示できること。",
+          "availability": "認証サービスは可用性99.99%を目標とし、ユーザーサービスの冗長化によりシングルポイントオブフェイラーを排除すること。",
+          "scalability": "ユーザー数およびリクエスト量の増大に応じて、各サービスが独立して水平スケール可能であり、データストアのパーティショニングをサポートすること。",
+          "security": "認証サービスはOAuth 2.0およびOpenID Connectなどの標準プロトコルを採用し、保存データおよび通信の暗号化を必須とすること。",
+          "operations_maintenance": "全サービスはコンテナ化し、集中ログ管理とヘルスチェック機能を備え、障害時の自動復旧が可能な設計であること。",
+          "development_efficiency": "サービス分割によりチームごとの独立した開発・デプロイが可能で、CI/CDパイプラインとの統合が容易な技術スタックを優先すること。"
+        }
+      ],
+      "recommended_stack": [
+        {
+          "layer": "プレゼンテーション層",
+          "technology": "React (TypeScript)",
+          "technology_reason": "コンポーネント指向と宣言的UIにより、ダッシュボードのような状態管理が複雑な画面も効率的に構築可能であり、TypeScriptによる型安全性が開発効率と保守性を向上させるため。",
+          "supporting_technology": "Tailwind CSS, Axios",
+          "supporting_technology_reason": "Tailwind CSSはユーティリティファーストのCSSフレームワークで、デザインシステムの統一と高速なプロトタイピングを実現。AxiosはPromiseベースのHTTPクライアントで、リクエストのインターセプトやエラーハンドリングを簡潔に実装できる。"
+        },
+        {
+          "layer": "アプリケーション層",
+          "technology": "Python + FastAPI",
+          "technology_reason": "非同期処理により高いパフォーマンスを発揮し、OpenAPI準拠の自動ドキュメント生成、Pydanticとの緊密な統合でリクエスト/レスポンスのバリデーションを効率化できるため。",
+          "supporting_technology": "Uvicorn, Pydantic",
+          "supporting_technology_reason": "Uvicornは高性能なASGIサーバーであり、FastAPIアプリケーションの本番運用に適している。Pydanticは型ヒントを利用したデータバリデーションとシリアライズを提供し、堅牢なAPI開発を支える。"
+        },
+        {
+          "layer": "ドメイン層",
+          "technology": "Python (DDD/サービスクラス)",
+          "technology_reason": "user_service, auth_service, dashboard_serviceといったビジネスロジックを明確に分離し、ドメイン駆動設計の原則に則って整理することで、拡張性とテスト容易性を確保するため。",
+          "supporting_technology": "FastAPI Depends (依存性注入)",
+          "supporting_technology_reason": "FastAPIの依存性注入システムを活用し、サービスやリポジトリの注入を宣言的に行い、コンポーネント間の結合度を低減させて単体テストの実効性を高める。"
+        },
+        {
+          "layer": "データ永続化層",
+          "technology": "PostgreSQL",
+          "technology_reason": "ACIDトランザクション、複雑なクエリ最適化、強力な拡張機能（JSONB, 全文検索など）を備え、ユーザーデータやダッシュボードの集計データ等の信頼性高い管理が可能なため。",
+          "supporting_technology": "SQLAlchemy, Alembic",
+          "supporting_technology_reason": "SQLAlchemyはPythonのORMとしてデータベース操作を抽象化し、生産性と可読性を向上させる。Alembicはマイグレーション管理を自動化し、スキーマ変更の追跡とロールバックを容易にする。"
+        },
+        {
+          "layer": "セキュリティ層",
+          "technology": "JWT (JSON Web Token) + OAuth2",
+          "technology_reason": "ステートレスなトークンベース認証によりスケーラビリティを確保し、OAuth2プロトコルによる標準化された認可フローを実装することで、auth_serviceの責務を明確に分離できるため。",
+          "supporting_technology": "bcrypt, PyJWT",
+          "supporting_technology_reason": "bcryptはパスワードのソルト付きハッシュ化を安全に行い、PyJWTはJWTの発行・検証・デコード処理をシンプルに実装できる。"
+        },
+        {
+          "layer": "デプロイメント・運用層",
+          "technology": "Docker",
+          "technology_reason": "コンテナ化により開発・ステージング・本番環境の一貫性を保ち、再現可能なビルドと軽量なリソース利用でクラウドネイティブな運用を実現するため。",
+          "supporting_technology": "Docker Compose, Nginx",
+          "supporting_technology_reason": "Docker Composeで複数サービス（アプリケーション、データベース、キャッシュ等）のローカルオーケストレーションを簡素化し、Nginxをリバースプロキシとして静的ファイル配信と負荷分散に利用する。"
+        }
+      ]
+    },
+    "non_functional_requirements": [
+      {
+        "category": "性能・スケーラビリティ",
+        "objective": "システムが高負荷時でも安定した応答時間を維持し、需要変動に応じて自動的にリソースを拡張できること。",
+        "priority": "高",
+        "implementation_policy": "ロードバランサによるトラフィック分散、水平スケーリング可能なステートレスサービス設計、Redis等を用いたキャッシュ層の導入、非同期メッセージキューによる処理の分離、オートスケーリングポリシーの設定。",
+        "measurement": "平均応答時間: 200ms以下, 最大スループット: 1000 req/sec 以上, スケールアウト完了時間: 5分以内"
+      },
+      {
+        "category": "可用性・信頼性",
+        "objective": "システム障害発生時もサービスを継続可能とし、データ損失を最小限に抑え迅速に復旧できること。",
+        "priority": "高",
+        "implementation_policy": "AWSマルチAZまたは同等構成による高可用性設計、ヘルスチェックによる自動フェイルオーバー、データベースのレプリケーション、定期的なスナップショットバックアップ、障害検知アラートの構築。",
+        "measurement": "サービス可用性: 99.95% (月間), RTO (目標復旧時間): 1時間以内, RPO (目標復旧時点): 5分以内"
+      },
+      {
+        "category": "保守性・運用性",
+        "objective": "システムの変更・障害対応が効率的に行え、運用チームの負荷が適切に管理されること。",
+        "priority": "中",
+        "implementation_policy": "構造化ログの集中管理 (例: ELK Stack)、Prometheus/Grafanaによるメトリクス監視とアラート、CI/CDパイプラインによる自動テスト・デプロイ、Terraform等のIaCで再現可能な環境構築。",
+        "measurement": "デプロイ頻度: 週1回以上, 変更失敗率: 5%以下, 平均復旧時間 (MTTR): 30分以内"
+      },
+      {
+        "category": "移植性",
+        "objective": "将来のインフラ環境変更やクラウドプロバイダ切り替えに際して、最小限の工数で移行できること。",
+        "priority": "低",
+        "implementation_policy": "全サービスをDockerコンテナとしてパッケージ化、Kubernetesを抽象化レイヤーとして採用、環境依存設定はConfigMap/Secretsで外部化、特定ベンダー依存サービスのラッピング。",
+        "measurement": "新規クラウド環境への移行工数: 1人月以内, 環境依存によるアプリケーション障害数: 0"
+      },
+      {
+        "category": "セキュリティ",
+        "objective": "不正アクセス・情報漏洩・改ざん等の脅威からシステムとデータを保護すること。",
+        "priority": "高",
+        "implementation_policy": "OAuth2/OpenID Connectによる認証認可、入力値のサニタイズとバリデーション、通信のTLS暗号化、保存データの暗号化 (AES-256)、定期的な脆弱性診断と依存関係の更新。",
+        "measurement": "重大脆弱性 (CVSS 7.0以上) の未修正件数: 0, セキュリティインシデント検出から初動対応までの時間: 1時間以内, 年次ペネトレーションテスト合格"
+      },
+      {
+        "category": "法令・規制遵守",
+        "objective": "適用される法令（個人情報保護法、GDPR等）および業界規制を遵守すること。",
+        "priority": "中",
+        "implementation_policy": "個人データの地域内保管の徹底、監査証跡のための操作ログ全件取得、ユーザー同意管理フローの実装、四半期ごとのコンプライアンス内部監査の実施。",
+        "measurement": "外部監査・内部監査における重大指摘件数: 0, データ主体からの請求対応遅延: 0件, データポリシー違反報告数: 0"
+      }
+    ]
+  },
+  "system_configuration": {
+    "diagram": [
+      "@startuml",
+      "title System Configuration",
+      "hide stereotype",
+      "actor \"クライアント\" as Client",
+      "package \"Application Server\" {",
+      "  component \"main\" as main",
+      "  component \"user_service\" as user_svc",
+      "  component \"auth_service\" as auth_svc",
+      "  component \"dashboard_service\" as dash_svc",
+      "}",
+      "Client --> main : HTTPリクエスト",
+      "main --> user_svc : 呼び出し",
+      "main --> auth_svc : 呼び出し",
+      "main --> dash_svc : 呼び出し",
+      "@enduml"
+    ],
+    "components": {
+      "Application Server": {
+        "component_name": "Application Server",
+        "role": "ユーザー管理、認証、ダッシュボード表示などの機能を提供するサーバーサイドアプリケーション。src/main.pyをエントリポイントとし、内部のサービスモジュールを統合する。",
+        "software_specification": "Python 3（.py）、Webアプリケーションフレームワーク（Flask/FastAPI等が想定されるが未確認）",
+        "relationship": "クライアントからのHTTPリクエストを src/main.py が受け付け、必要に応じて src/user_service.py, src/auth_service.py, src/dashboard_service.py の各モジュールを呼び出す。データベース等の外部サービスとの連携はファイルサマリーからは不明。",
+        "notes": "ファイル内容が提供されていないため、正確なアーキテクチャや依存関係は不明。src/ 配下の複数のサービスファイルは、モノリシックな構造の一部か、あるいは将来的にマイクロサービスとして分割される可能性もあるが、現時点では単一のアプリケーションとして把握する。"
+      }
+    }
+  },
+  "use_case_diagram": {
+    "actors": {
+      "human_actors": [],
+      "external_system_actors": []
+    },
+    "main_usecases": [],
+    "sub_usecases": [],
+    "relations": [],
+    "sub_systems": []
+  },
+  "activity_diagrams": {
+    "diagrams": []
+  },
+  "screen_transition_diagram": {
+    "screen_dict": {},
+    "screen_flow_diagram": [
+      "",
+      "```plantuml",
+      "@startuml",
+      "top to bottom direction",
+      "note \"画面遷移図を作成するための情報が不足しています。\\nファイル内容が提供されていません。\" as N1",
+      "@enduml",
+      "```"
+    ],
+    "annotations": [
+      "ご指定のファイルサマリーおよび画面一覧には、いずれも具体的な内容が記載されていないため、画面遷移の条件を抽出・定義することができません。  ",
+      "つきましては、各サービスの実際の処理内容（機能詳細、状態分岐、エラーハンドリング等）および、対象となる画面一覧（画面名、表示項目、操作要素）を改めてご提示ください。"
+    ]
+  },
+  "screen_design": {
+    "screen_designs": []
+  },
+  "database_design_data": {
+    "table_descriptions": [],
+    "er_diagram": [
+      "```plantuml",
+      "@startuml",
+      "@enduml",
+      "```"
+    ]
+  },
+  "interface_design": {
+    "auth_methods": [
+      "## 認証方式",
+      "情報なし",
+      "",
+      "## 認可制御",
+      "情報なし"
+    ],
+    "endpoint_data": []
+  },
+  "sequence_diagram_data": {
+    "scenarios": [
+      {
+        "name": "ユーザー認証",
+        "description": "ユーザーのログイン、ログアウト、トークン更新などの認証に関わる一連の操作。",
+        "sub_scenarios": [
+          "ログイン処理",
+          "ログアウト処理",
+          "アクセストークン再発行"
+        ]
+      },
+      {
+        "name": "ユーザー管理",
+        "description": "ユーザーアカウントの登録、プロフィール更新、アカウント削除など、ユーザー情報の管理に関する操作。",
+        "sub_scenarios": [
+          "ユーザー登録",
+          "ユーザー情報の更新",
+          "ユーザーアカウントの削除"
+        ]
+      },
+      {
+        "name": "ダッシュボード表示",
+        "description": "ダッシュボード画面の表示、データのフィルタリング、グラフの更新など、ユーザーへの情報提供に関する操作。",
+        "sub_scenarios": [
+          "ダッシュボード初期表示",
+          "期間フィルター適用",
+          "データのエクスポート"
+        ]
+      }
+    ],
+    "participants": [
+      {
+        "name": "ログイン処理",
+        "participants": [
+          "ユーザー",
+          "クライアントアプリケーション",
+          "認証システム",
+          "ユーザー管理システム",
+          "データベース"
+        ]
+      },
+      {
+        "name": "ログアウト処理",
+        "participants": [
+          "ユーザー",
+          "クライアントアプリケーション",
+          "認証システム",
+          "データベース"
+        ]
+      },
+      {
+        "name": "アクセストークン再発行",
+        "participants": [
+          "クライアントアプリケーション",
+          "認証システム",
+          "トークン管理システム",
+          "データベース"
+        ]
+      },
+      {
+        "name": "ユーザー登録",
+        "participants": [
+          "新規ユーザー",
+          "クライアントアプリ",
+          "APIサーバー",
+          "ユーザー管理サービス",
+          "認証サービス",
+          "データベース",
+          "通知サービス"
+        ]
+      },
+      {
+        "name": "ユーザー情報の更新",
+        "participants": [
+          "ユーザー",
+          "クライアントアプリ",
+          "APIサーバー",
+          "ユーザー管理サービス",
+          "認証サービス",
+          "データベース"
+        ]
+      },
+      {
+        "name": "ユーザーアカウントの削除",
+        "participants": [
+          "ユーザー",
+          "クライアントアプリ",
+          "APIサーバー",
+          "ユーザー管理サービス",
+          "認証サービス",
+          "データベース"
+        ]
+      },
+      {
+        "name": "ダッシュボード初期表示",
+        "participants": [
+          "ユーザー",
+          "フロントエンド",
+          "認証サービス",
+          "ユーザーサービス",
+          "ダッシュボードサービス",
+          "データベース"
+        ]
+      },
+      {
+        "name": "期間フィルター適用",
+        "participants": [
+          "ユーザー",
+          "フロントエンド",
+          "認証サービス",
+          "ダッシュボードサービス",
+          "データベース"
+        ]
+      },
+      {
+        "name": "データのエクスポート",
+        "participants": [
+          "ユーザー",
+          "フロントエンド",
+          "認証サービス",
+          "ダッシュボードサービス",
+          "データベース"
+        ]
+      }
+    ],
+    "sequence_diagrams": [
+      {
+        "scenario_name": "ユーザー認証",
+        "sequence_diagram": [
+          "@startuml",
+          "actor ユーザー",
+          "participant クライアント",
+          "participant 認証サービス",
+          "participant ユーザーサービス",
+          "",
+          "alt ログイン処理",
+          "    ユーザー -> クライアント: ログイン情報入力(ユーザー名, パスワード)",
+          "    クライアント -> 認証サービス: ログイン要求(ユーザー名, パスワード)",
+          "    認証サービス -> ユーザーサービス: ユーザー情報取得(ユーザー名)",
+          "    ユーザーサービス --> 認証サービス: ユーザー情報",
+          "    認証サービス -> 認証サービス: パスワード検証",
+          "    認証サービス --> クライアント: トークン発行(アクセストークン, リフレッシュトークン)",
+          "    クライアント --> ユーザー: ログイン成功",
+          "else ログアウト処理",
+          "    ユーザー -> クライアント: ログアウト要求",
+          "    クライアント -> 認証サービス: トークン無効化(アクセストークン)",
+          "    認証サービス -> 認証サービス: トークン破棄",
+          "    認証サービス --> クライアント: ログアウト成功",
+          "    クライアント --> ユーザー: ログアウト完了",
+          "else アクセストークン再発行",
+          "    クライアント -> 認証サービス: トークン再発行要求(リフレッシュトークン)",
+          "    認証サービス -> 認証サービス: リフレッシュトークン検証",
+          "    認証サービス --> クライアント: 新しいアクセストークン",
+          "end",
+          "@enduml"
+        ]
+      },
+      {
+        "scenario_name": "ユーザー管理",
+        "sequence_diagram": [
+          "@startuml",
+          "actor \"ユーザー\" as User",
+          "participant \"メイン制御\" as Main",
+          "participant \"ユーザーサービス\" as UserService",
+          "participant \"認証サービス\" as AuthService",
+          "participant \"データベース\" as DB",
+          "",
+          "User -> Main: 操作要求(操作種別, データ)",
+          "activate Main",
+          "",
+          "alt 操作種別 == ユーザー登録",
+          "",
+          "Main -> UserService: ユーザー登録処理(ユーザー情報)",
+          "activate UserService",
+          "",
+          "UserService -> DB: 既存ユーザー確認(識別子)",
+          "activate DB",
+          "DB --> UserService: 確認結果",
+          "deactivate DB",
+          "",
+          "UserService -> AuthService: パスワードハッシュ化(平文パスワード)",
+          "activate AuthService",
+          "AuthService --> UserService: ハッシュ化パスワード",
+          "deactivate AuthService",
+          "",
+          "UserService -> DB: ユーザー情報保存(ユーザーデータ)",
+          "activate DB",
+          "DB --> UserService: 保存結果",
+          "deactivate DB",
+          "",
+          "UserService --> Main: 登録結果",
+          "deactivate UserService",
+          "",
+          "else 操作種別 == ユーザー情報更新",
+          "",
+          "Main -> UserService: ユーザー情報更新処理(ユーザーID, 更新データ)",
+          "activate UserService",
+          "",
+          "UserService -> DB: ユーザー情報更新(更新内容)",
+          "activate DB",
+          "DB --> UserService: 更新結果",
+          "deactivate DB",
+          "",
+          "UserService --> Main: 更新結果",
+          "deactivate UserService",
+          "",
+          "else 操作種別 == アカウント削除",
+          "",
+          "Main -> UserService: ユーザー削除処理(ユーザーID)",
+          "activate UserService",
+          "",
+          "UserService -> DB: ユーザー情報削除(ユーザーID)",
+          "activate DB",
+          "DB --> UserService: 削除結果",
+          "deactivate DB",
+          "",
+          "UserService --> Main: 削除結果",
+          "deactivate UserService",
+          "",
+          "end",
+          "",
+          "Main --> User: 操作結果",
+          "deactivate Main",
+          "@enduml"
+        ]
+      },
+      {
+        "scenario_name": "ダッシュボード表示",
+        "sequence_diagram": [
+          "@startuml",
+          "actor \"ユーザー\" as User",
+          "participant \"メイン\" as Main",
+          "participant \"ユーザーサービス\" as UserService",
+          "participant \"認証サービス\" as AuthService",
+          "participant \"ダッシュボードサービス\" as DashboardService",
+          "database \"データベース\" as DB",
+          "",
+          "User -> Main: ダッシュボード画面を開く",
+          "activate Main",
+          "Main -> AuthService: 認証状態を確認する",
+          "activate AuthService",
+          "AuthService -> DB: セッション情報を照会する",
+          "DB --> AuthService: セッション情報",
+          "AuthService --> Main: 認証結果",
+          "deactivate AuthService",
+          "alt 認証済み",
+          "    Main -> DashboardService: ダッシュボードデータを要求する(ユーザーID)",
+          "    activate DashboardService",
+          "    DashboardService -> UserService: ユーザー情報を取得する(ユーザーID)",
+          "    activate UserService",
+          "    UserService -> DB: ユーザー情報を照会する",
+          "    DB --> UserService: ユーザー情報",
+          "    UserService --> DashboardService: ユーザー情報",
+          "    deactivate UserService",
+          "    DashboardService -> DB: ユーザーに応じたダッシュボード用データを取得する",
+          "    DB --> DashboardService: データ",
+          "    DashboardService --> Main: ダッシュボードデータ",
+          "    deactivate DashboardService",
+          "    Main -> User: ダッシュボードを表示する",
+          "else 未認証",
+          "    Main -> User: ログイン画面へリダイレクトする",
+          "end",
+          "deactivate Main",
+          "",
+          "User -> Main: 期間を指定してフィルタを適用する",
+          "activate Main",
+          "Main -> DashboardService: フィルタ条件でデータを要求する(期間)",
+          "activate DashboardService",
+          "DashboardService -> DB: 条件に合致するデータを取得する",
+          "DB --> DashboardService: フィルタ済みデータ",
+          "DashboardService --> Main: フィルタ済みデータ",
+          "deactivate DashboardService",
+          "Main -> Main: グラフを更新する",
+          "Main -> User: 更新されたダッシュボードを表示する",
+          "deactivate Main",
+          "",
+          "User -> Main: データのエクスポートを要求する",
+          "activate Main",
+          "Main -> DashboardService: エクスポート用データを要求する(現在の表示条件)",
+          "activate DashboardService",
+          "DashboardService -> DB: 該当データを全件取得する",
+          "DB --> DashboardService: 全データ",
+          "DashboardService --> Main: エクスポート用データ",
+          "deactivate DashboardService",
+          "Main -> User: ファイルをダウンロードさせる",
+          "deactivate Main",
+          "",
+          "@enduml"
+        ]
+      }
+    ]
+  },
+  "directory_structure": {
+    "folder_structure": [
+      "test/",
+      "└── src/"
+    ],
+    "naming_conventions": {
+      "フォルダ命名": {
+        "purpose": "プロジェクトのソースコードを格納する最上位フォルダとして、短く一般的な 'src' が使用されています。",
+        "example": "src"
+      },
+      "ファイル命名": {
+        "purpose": "Pythonの標準的な命名規則に従い、全て小文字で単語をアンダースコアで区切るスネークケースが採用され、可読性と一貫性を確保しています。",
+        "example": "user_service.py"
+      }
+    },
+    "file_placement_rules": {
+      "エントリーポイント": {
+        "description": "アプリケーションの起動やメイン処理を担当するファイル。",
+        "location": "src/main.py",
+        "example": "src/main.py"
+      },
+      "サービス": {
+        "description": "ビジネスロジックや機能を提供するサービスクラスを含むファイル。",
+        "location": "src/*_service.py",
+        "example": "src/user_service.py"
+      }
+    },
+    "module_partitioning_policies": [
+      {
+        "title": "サービス単位のファイル分割",
+        "description": "ユーザー、認証、ダッシュボードといったサービスごとに独立したファイルを設けることで、責務を明確に分離し、各機能の独立性を高めている。これにより、コードの保守性やチーム開発時の並行作業のしやすさが向上する。"
+      }
+    ]
+  }
+}
